@@ -1,0 +1,60 @@
+# OpenSpec Configuration Example
+# Place this file in your project root as openspec/config.yaml
+
+# Default workflow schema
+# Options: spec-driven, or custom schema names
+default_schema: spec-driven
+
+# Project context for AI to understand your codebase
+project:
+  name: "Your Project Name"
+  description: "Brief description of what this project does"
+  tech_stack:
+    - "Language/Platform (e.g., Python, Node.js)"
+    - "Framework (e.g., React, Django, Express)"
+    - "Database (e.g., PostgreSQL, MongoDB)"
+    - "Other key technologies"
+
+# Directory structure customization (optional)
+paths:
+  # Where specs are stored (default: openspec/specs/)
+  specs: "openspec/specs/"
+  # Where active changes live (default: openspec/changes/)
+  changes: "openspec/changes/"
+  # Where archived changes go (default: openspec/changes/archive/)
+  archive: "openspec/changes/archive/"
+
+# Schema configuration (for custom workflows)
+# See OpenSpec docs for custom schema creation
+schemas:
+  spec-driven:
+    artifacts:
+      - id: proposal
+        generates: proposal.md
+        requires: []
+      - id: specs
+        generates: specs/**/*.md
+        requires: [proposal]
+      - id: design
+        generates: design.md
+        requires: [proposal]
+      - id: tasks
+        generates: tasks.md
+        requires: [specs, design]
+
+# Artifact-specific guidance (optional)
+# These provide additional context to the AI when creating artifacts
+artifact_guidance:
+  proposal:
+    focus: "intent and scope"
+    include: "problem statement, goals, approach"
+  specs:
+    focus: "behavioral requirements"
+    include: "requirements, scenarios, acceptance criteria"
+    style: "Given-When-Then format"
+  design:
+    focus: "technical approach"
+    include: "architecture decisions, data flow, file changes"
+  tasks:
+    focus: "implementation checklist"
+    include: "concrete steps, hierarchical numbering"
