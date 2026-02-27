@@ -1,0 +1,69 @@
+// OpenClaw Configuration Template for VPS Deployment
+// Variables: ${OLLAMA_API_KEY}, ${DEFAULT_MODEL}
+
+{
+  models: {
+    providers: {
+      ollama: {
+        baseUrl: "https://ollama.com",
+        apiKey: "${OLLAMA_API_KEY}"
+        // Auto-discovery enabled - all Ollama Cloud models available
+      }
+    }
+  },
+
+  agents: {
+    defaults: {
+      // Default model from Ollama Cloud
+      model: { primary: "ollama/${DEFAULT_MODEL}" },
+
+      // Security: sandbox for non-main sessions
+      sandbox: {
+        mode: "non-main",
+        scope: "agent",
+        workspaceAccess: "none",
+        docker: {
+          image: "openclaw-sandbox:bookworm-slim",
+          workdir: "/workspace",
+          network: "none",
+          user: "1000:1000",
+          capDrop: ["ALL"],
+          pidsLimit: 256,
+          memory: "1g"
+        }
+      },
+
+      // Memory with local embeddings (Russian-optimized)
+      memorySearch: {
+        provider: "local",
+        local: {
+          modelPath: "hf:keisuke-miyako/multilingual-e5-small-gguf-q8_0/multilingual-e5-small-Q8_0.gguf"
+        },
+        query: {
+          hybrid: {
+            enabled: true,
+            vectorWeight: 0.7,
+            textWeight: 0.3
+          }
+        }
+      },
+
+      // Auto memory flush before compaction
+      compaction: {
+        mode: "safeguard",
+        reserveTokensFloor: 20000,
+        memoryFlush: {
+          enabled: true,
+          softThresholdTokens: 6000
+        }
+      }
+    }
+  },
+
+  // Gateway configuration
+  gateway: {
+    mode: "local",
+    bind: "loopback",  // Only localhost, use Nginx for external access
+    port: 18789
+  }
+}
