@@ -575,6 +575,66 @@ ollama-web fetch example.com --format markdown
 
 ---
 
+## Ollama Web Search Plugin (интеграция в OpenClaw)
+
+Для использования поиска через `web_search` tool внутри OpenClaw (а не через CLI):
+
+### Установка плагина
+
+```bash
+# Создаём директорию плагина
+mkdir -p ~/.openclaw/extensions/ollama-web-search
+
+# Создаём манифест
+cat > ~/.openclaw/extensions/ollama-web-search/openclaw.plugin.json << 'EOF'
+{
+  "id": "ollama-web-search",
+  "name": "Ollama Web Search",
+  "description": "Web search and fetch using Ollama API. Free with Ollama Cloud API key.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "apiKey": { "type": "string", "description": "Ollama API key (or set OLLAMA_API_KEY env var)" },
+      "maxResults": { "type": "integer", "default": 5, "minimum": 1, "maximum": 10 },
+      "timeoutSeconds": { "type": "integer", "default": 30, "minimum": 5, "maximum": 120 }
+    }
+  }
+}
+EOF
+
+# Создаём код плагина (TypeScript)
+# См. https://github.com/dmitreshel-art/agent_skills/blob/main/ollama-web-search/index.ts
+curl -o ~/.openclaw/extensions/ollama-web-search/index.ts \
+  https://raw.githubusercontent.com/dmitreshel-art/agent_skills/main/ollama-web-search/index.ts
+
+# Добавляем в конфигурацию
+jq '.plugins.allow = ["ollama-web-search"] | .plugins.entries["ollama-web-search"] = {"enabled": true}' \
+  ~/.openclaw/openclaw.json > ~/.openclaw/openclaw.json.tmp && \
+  mv ~/.openclaw/openclaw.json.tmp ~/.openclaw/openclaw.json
+
+# Рестарт gateway
+systemctl --user restart openclaw-gateway
+```
+
+### Проверка
+
+```bash
+# В логах должно быть:
+# [ollama-web-search] Plugin loaded successfully
+journalctl --user -u openclaw-gateway -n 20 | grep ollama
+```
+
+### Использование
+
+Плагин регистрирует инструменты:
+- `ollama_web_search` — поиск в интернете
+- `ollama_web_fetch` — загрузка страниц
+
+AI автоматически использует их когда нужен поиск или загрузка веб-контента.
+
+---
+
 ### Шаг 7: Systemd Daemon
 
 OpenClaw имеет встроенную установку daemon:
