@@ -117,7 +117,10 @@ chown -R 1000:1000 /home/openclaw/.openclaw
       "ollama": {
         "baseUrl": "https://ollama.com",
         "api": "ollama",
-        "models": []
+        "models": [
+          {"id": "glm-5", "name": "GLM-5", "reasoning": true, "input": ["text"], "cost": {"input": 0, "output": 0}, "contextWindow": 204800, "maxTokens": 131072},
+          {"id": "gpt-oss:120b", "name": "GPT-OSS 120B", "reasoning": true, "input": ["text"], "cost": {"input": 0, "output": 0}, "contextWindow": 131072, "maxTokens": 32768}
+        ]
       }
     }
   },
@@ -223,22 +226,51 @@ ss -tlnp | grep 18789
 # Ожидаемый вывод: LISTEN ... 0.0.0.0:18789 ... (для Nginx)
 ```
 
-### Шаг 9: Автообнаружение моделей
+### Шаг 9: Настройка моделей Ollama Cloud
 
-После запуска модели автоматически подгрузятся из Ollama Cloud:
+**⚠️ Важно:** Auto-discovery НЕ работает для Ollama Cloud! OpenClaw хардкодит `127.0.0.1:11434` для discovery, игнорируя baseUrl.
 
+**Решение:** Явный список моделей в конфиге.
+
+**Получение списка моделей:**
 ```bash
-# Проверка (в контейнере)
-docker exec openclaw-repo-openclaw-gateway-1 node dist/index.js models list
-
-# Если модели не появились — рестарт
-docker compose restart
+# Вне контейнера
+curl -H "Authorization: Bearer $OLLAMA_API_KEY" https://ollama.com/api/tags | jq '.models[].name'
 ```
 
-**Как это работает:**
-1. `OLLAMA_API_KEY` в `.env` → передаётся в контейнер
-2. OpenClaw опрашивает `https://ollama.com/api/tags`
-3. Все модели с tool support появляются автоматически
+**Минимальный конфиг (~/.openclaw/openclaw.json):**
+```json
+{
+  "models": {
+    "providers": {
+      "ollama": {
+        "baseUrl": "https://ollama.com",
+        "api": "ollama",
+        "models": [
+          {"id": "gpt-oss:120b", "name": "GPT-OSS 120B", "reasoning": true, "input": ["text"], "contextWindow": 131072, "maxTokens": 32768},
+          {"id": "glm-5", "name": "GLM-5", "reasoning": true, "input": ["text"], "contextWindow": 204800, "maxTokens": 131072}
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {"primary": "ollama/gpt-oss:120b", "fallbacks": ["ollama/glm-5"]},
+      "models": {
+        "ollama/gpt-oss:120b": {"alias": "GPT"},
+        "ollama/glm-5": {}
+      }
+    }
+  }
+}
+```
+
+**Важно:** Добавь модели в `agents.defaults.models` чтобы они появились в `/models` UI.
+
+**Проверка:**
+```bash
+docker exec openclaw-repo-openclaw-gateway-1 node dist/index.js models list
+```
 
 ### Шаг 10: Nginx + HTTPS (+ Control UI)
 
@@ -606,6 +638,155 @@ docker compose restart
 # Пересоздание SSL
 sudo certbot renew --force-renewal
 sudo systemctl reload nginx
+```
+
+---
+
+## Ollama Cloud: Интеграция
+
+### ⚠️ Автообнаружение НЕ работает для Ollama Cloud!
+
+**Только локальный Ollama** (`http://127.0.0.1:11434`) поддерживает автообнаружение моделей через `OLLAMA_API_KEY`.
+
+**Проверено (2026-02-27):**
+- `OLLAMA_API_KEY` без explicit provider → `TypeError: fetch failed` (localhost)
+- `OLLAMA_HOST` env var → не используется OpenClaw
+- `models: []` (пустой массив) → ошибка "expected array, received undefined"
+- `models` omitted → ошибка "expected array"
+
+**Код OpenClaw:**
+```javascript
+const DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1"; // хардкод
+```
+
+### Рабочий конфиг (явные модели ОБЯЗАТЕЛЬНЫ)
+
+```json
+{
+  "models": {
+    "providers": {
+      "ollama": {
+        "baseUrl": "https://ollama.com",
+        "api": "ollama",
+        "models": [
+          {"id": "glm-5", "name": "GLM-5", "reasoning": true, "input": ["text"], "cost": {"input": 0, "output": 0}, "contextWindow": 204800, "maxTokens": 131072},
+          {"id": "gpt-oss:120b", "name": "GPT-OSS 120B", "reasoning": true, "input": ["text"], "cost": {"input": 0, "output": 0}, "contextWindow": 131072, "maxTokens": 32768}
+        ]
+      }
+    }
+  }
+}
+```
+
+**Получить список моделей:**
+```bash
+curl -H "Authorization: Bearer $OLLAMA_API_KEY" https://ollama.com/api/tags | jq '.models[].name'
+```
+
+### Множественные провайдеры
+
+Для работы z.ai + Ollama Cloud одновременно:
+```json
+{
+  "models": {
+    "providers": {
+      "ollama": {
+        "baseUrl": "https://ollama.com/v1",
+        "api": "openai-completions",
+        "models": [...]
+      },
+      "zai": {
+        "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+        "api": "openai-completions",
+        "models": [...]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "ollama/gpt-oss:120b",
+        "fallbacks": ["zai/glm-5", "ollama/deepseek-v3.2"]
+      }
+    }
+  }
+}
+```
+
+### Проверка Ollama Cloud API
+
+```bash
+# Из контейнера
+docker exec <container> curl -H "Authorization: Bearer $OLLAMA_API_KEY" \
+  https://ollama.com/v1/models | jq '.data[].id'
+
+# Должен вернуть список моделей
+```
+
+---
+
+## Автообновление
+
+### Вариант 1: Cron + Git (рекомендуется для сборки из исходников)
+
+```bash
+# Создать скрипт обновления
+sudo tee /home/openclaw/update-openclaw.sh << 'EOF'
+#!/bin/bash
+set -e
+cd /home/openclaw/openclaw-repo
+
+# Проверка обновлений
+git fetch origin
+LOCAL=$(git rev-parse HEAD)
+REMOTE=$(git rev-parse origin/main)
+
+if [ "$LOCAL" = "$REMOTE" ]; then
+  echo "Нет обновлений"
+  exit 0
+fi
+
+echo "Обновление OpenClaw..."
+git pull
+docker compose build
+docker compose up -d
+echo "OpenClaw обновлён!"
+EOF
+
+sudo chmod +x /home/openclaw/update-openclaw.sh
+
+# Добавить в cron (ежедневно в 4:00)
+(sudo crontab -l 2>/dev/null; echo "0 4 * * * /home/openclaw/update-openclaw.sh >> /home/openclaw/update.log 2>&1") | sudo crontab -
+```
+
+### Вариант 2: Watchtower (для Docker Hub образов)
+
+```bash
+# Запустить watchtower (проверка каждые 24 часа)
+docker run -d \
+  --name watchtower \
+  --restart unless-stopped \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  containrrr/watchtower \
+  --interval 86400 \
+  openclaw-gateway
+```
+
+**Примечание:** Watchtower не подходит для `openclaw:local` (локальный образ), только для образов из Docker Hub.
+
+### Вариант 3: Ручное обновление
+
+```bash
+cd /home/openclaw/openclaw-repo
+git pull
+docker compose build
+docker compose up -d
+```
+
+### Проверка версии
+
+```bash
+docker exec openclaw-repo-openclaw-gateway-1 node -e "console.log(require('/app/package.json').version)"
 ```
 
 ---
